@@ -1248,6 +1248,15 @@ MIT
 
 ---
 
+## Guides
+
+For advanced usage, see the detailed guides in `docs/`:
+
+- **[Running Multiple Projects Simultaneously](docs/multi-project.md)** — Parallel execution across your entire project portfolio with tmux monitoring, meta-orchestration, and resource management.
+- **[Running TaskLot on Monorepos](docs/monorepo.md)** — Agent strategy for monorepos, cross-package task design, stacked branches across layers, and full end-to-end walkthroughs.
+
+---
+
 ## Author
 
 Built by **Sey** — Autonomous AI workflows for modern engineering.
