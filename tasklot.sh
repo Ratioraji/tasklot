@@ -98,7 +98,8 @@ load_config() {
   TEST_COMMAND=$(jq -r '.test_command // ""' "$CONFIG_FILE")
   CURL_TESTS_ENABLED=$(jq -r '.curl_tests_enabled // false' "$CONFIG_FILE")
   API_BASE_URL=$(jq -r '.api_base_url // "http://localhost:3000"' "$CONFIG_FILE")
-  NOTION_ENABLED=$(jq -r '.notion.enabled // false' "$CONFIG_FILE")
+  NOTION_ENABLED=$(jq -r 'if .task_source.type then (.task_source.type != "null") else (.notion.enabled // false) end' "$CONFIG_FILE")
+  TASK_SOURCE_TYPE=$(jq -r '.task_source.type // "none"' "$CONFIG_FILE")
   AUTO_PR=$(jq -r '.auto_pr // true' "$CONFIG_FILE")
   AUTO_DOCUMENT=$(jq -r '.auto_document // true' "$CONFIG_FILE")
 
@@ -594,31 +595,80 @@ Do NOT include any preamble — start directly with the summary."
   echo "$documentation"
 }
 
-# ─── Document to Notion ──────────────────────────────────────────────────────
-document_to_notion() {
+# ─── Document to Source Tool ──────────────────────────────────────────────────
+document_to_source() {
   local task_id="$1"
   local documentation="$2"
-  local notion_page_id="$3"
+  local source_id="$3"
 
-  if [[ "$NOTION_ENABLED" != "true" || "$AUTO_DOCUMENT" != "true" ]]; then
-    log_warn "Notion documentation disabled — skipping"
+  if [[ "$AUTO_DOCUMENT" != "true" || "$TASK_SOURCE_TYPE" == "none" ]]; then
+    log_warn "Source documentation disabled — skipping"
     return 0
   fi
 
-  log_step "Documenting to Notion ticket..."
+  if [[ -z "$source_id" ]]; then
+    log_warn "No source_id for task — skipping documentation"
+    return 0
+  fi
 
-  local notion_prompt="Post the following as a comment on the Notion page with ID: ${notion_page_id}
+  log_step "Documenting to ${TASK_SOURCE_TYPE} (${source_id})..."
+
+  local doc_prompt=""
+
+  case "$TASK_SOURCE_TYPE" in
+    notion)
+      doc_prompt="Post the following as a comment on the Notion page with ID: ${source_id}
 
 ---
-## TaskLot Implementation Report
+## Implementation Report
 
 ${documentation}
 
 ---
-*Documented by TaskLot at $(date '+%Y-%m-%d %H:%M:%S')*"
+*Documented at $(date '+%Y-%m-%d %H:%M:%S')*"
+      ;;
+    jira)
+      doc_prompt="Add the following as a comment on the Jira issue: ${source_id}
 
-  execute_task "$notion_prompt" "$PROJECT_DIR" >> "$LOG_FILE" 2>&1
-  log_success "Documentation posted to Notion"
+---
+## Implementation Report
+
+${documentation}
+
+---
+*Documented at $(date '+%Y-%m-%d %H:%M:%S')*"
+      ;;
+    linear)
+      doc_prompt="Add the following as a comment on the Linear issue with ID: ${source_id}
+
+---
+## Implementation Report
+
+${documentation}
+
+---
+*Documented at $(date '+%Y-%m-%d %H:%M:%S')*"
+      ;;
+    github)
+      doc_prompt="Add the following as a comment on GitHub issue #${source_id}
+
+---
+## Implementation Report
+
+${documentation}
+
+---
+*Documented at $(date '+%Y-%m-%d %H:%M:%S')*"
+      ;;
+    *)
+      doc_prompt="Document the following implementation for task ${source_id}:
+
+${documentation}"
+      ;;
+  esac
+
+  execute_task "$doc_prompt" "$PROJECT_DIR" >> "$LOG_FILE" 2>&1
+  log_success "Documentation posted to ${TASK_SOURCE_TYPE}"
 }
 
 # ─── Mark Task Done ───────────────────────────────────────────────────────────
@@ -642,12 +692,12 @@ mark_task_failed() {
 # ─── Execute Single Task ─────────────────────────────────────────────────────
 execute_single_task() {
   local task_index="$1"
-  local task_id task_title task_description task_notion_id
+  local task_id task_title task_description task_source_id
 
   task_id=$(jq -r ".tasks[${task_index}].id" "$TASKS_FILE")
   task_title=$(jq -r ".tasks[${task_index}].title" "$TASKS_FILE")
   task_description=$(jq -r ".tasks[${task_index}].description" "$TASKS_FILE")
-  task_notion_id=$(jq -r ".tasks[${task_index}].notion_page_id // empty" "$TASKS_FILE")
+  task_source_id=$(jq -r ".tasks[${task_index}].source_id // .tasks[${task_index}].notion_page_id // empty" "$TASKS_FILE")
 
   echo ""
   echo -e "${MAGENTA}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
@@ -769,8 +819,8 @@ ${clean_description}
   fi
 
   # ── Document to Notion ──
-  if [[ -n "$task_notion_id" ]]; then
-    document_to_notion "$task_id" "$documentation" "$task_notion_id"
+  if [[ -n "$task_source_id" ]]; then
+    document_to_source "$task_id" "$documentation" "$task_source_id"
   fi
 
   # ── Mark done ──

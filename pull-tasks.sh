@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 ###############################################################################
-#  TaskLot — Notion Task Puller
-#  Fetches all tickets from a Notion database and generates tasks.json
+#  TaskLot — Task Puller
+#  Fetches tasks from your project management tool and generates tasks.json
 #
-#  Usage: ./pull-tasks.sh [--config config.json]
+#  Supports: Notion, Jira, Linear, GitHub Issues, Custom
+#  The puller is selected via config.json → task_source.type
 #
-#  This script uses Claude Code with Notion MCP to pull tasks.
-#  Ensure your Notion MCP connection is configured in Claude Code.
+#  Usage: ./pull-tasks.sh [--config config.json] [--source notion|jira|linear|github|custom]
 ###############################################################################
 
 set -euo pipefail
 
+# ─── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -21,103 +22,173 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
+# ─── Globals ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/config.json"
+PULLERS_DIR="${SCRIPT_DIR}/pullers"
+OUTPUT_FILE="${SCRIPT_DIR}/tasks.json"
+SOURCE_OVERRIDE=""
 
-# Parse args
+# ─── Parse Args ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case $1 in
     --config) CONFIG_FILE="$2"; shift 2 ;;
-    *) shift ;;
+    --source) SOURCE_OVERRIDE="$2"; shift 2 ;;
+    --output) OUTPUT_FILE="$2"; shift 2 ;;
+    --list)
+      echo "Available pullers:"
+      for f in "${PULLERS_DIR}"/*.sh; do
+        basename "$f" .sh
+      done
+      exit 0
+      ;;
+    --help)
+      echo "Usage: ./pull-tasks.sh [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --config FILE     Path to config.json (default: ./config.json)"
+      echo "  --source TYPE     Override task source (notion, jira, linear, github, custom)"
+      echo "  --output FILE     Output file path (default: ./tasks.json)"
+      echo "  --list            List available pullers"
+      echo "  --help            Show this help"
+      exit 0
+      ;;
+    *) echo -e "${RED}Unknown option: $1${RESET}"; exit 1 ;;
   esac
 done
 
+# ─── Validate Config ─────────────────────────────────────────────────────────
 if [[ ! -f "$CONFIG_FILE" ]]; then
-  echo -e "${RED}Config file not found: ${CONFIG_FILE}${RESET}"
+  echo -e "${RED}✖ Config file not found: ${CONFIG_FILE}${RESET}"
   exit 1
 fi
 
-NOTION_DB_ID=$(jq -r '.notion.database_id // empty' "$CONFIG_FILE")
+# ─── Determine Source ─────────────────────────────────────────────────────────
+# Priority: --source flag > config.json task_source.type > legacy config.json notion field
+SOURCE_TYPE=""
 
-if [[ -z "$NOTION_DB_ID" ]]; then
-  echo -e "${RED}Notion database_id not set in config.json${RESET}"
+if [[ -n "$SOURCE_OVERRIDE" ]]; then
+  SOURCE_TYPE="$SOURCE_OVERRIDE"
+elif jq -e '.task_source.type' "$CONFIG_FILE" > /dev/null 2>&1; then
+  SOURCE_TYPE=$(jq -r '.task_source.type' "$CONFIG_FILE")
+elif jq -e '.notion.enabled' "$CONFIG_FILE" > /dev/null 2>&1; then
+  # Backward compatibility: legacy config with notion.* fields
+  LEGACY_ENABLED=$(jq -r '.notion.enabled // false' "$CONFIG_FILE")
+  if [[ "$LEGACY_ENABLED" == "true" ]]; then
+    SOURCE_TYPE="notion"
+    echo -e "${YELLOW}⚠ Using legacy config format (notion.*). Consider migrating to task_source.type${RESET}"
+    echo ""
+  fi
+fi
+
+if [[ -z "$SOURCE_TYPE" ]]; then
+  echo -e "${RED}✖ No task source configured${RESET}"
+  echo ""
+  echo -e "Set ${BOLD}task_source.type${RESET} in config.json:"
+  echo ""
+  echo '  "task_source": {'
+  echo '    "type": "notion",      ← notion | jira | linear | github | custom'
+  echo '    "config": { ... }'
+  echo '  }'
+  echo ""
+  echo -e "Or use ${BOLD}--source${RESET} flag: ./pull-tasks.sh --source notion"
+  echo ""
+  echo -e "Available pullers: $(ls "${PULLERS_DIR}"/*.sh 2>/dev/null | xargs -I{} basename {} .sh | tr '\n' ', ' | sed 's/,$//')"
   exit 1
 fi
 
+# ─── Validate Puller Exists ──────────────────────────────────────────────────
+PULLER_FILE="${PULLERS_DIR}/${SOURCE_TYPE}.sh"
+
+if [[ ! -f "$PULLER_FILE" ]]; then
+  echo -e "${RED}✖ Puller not found: ${PULLER_FILE}${RESET}"
+  echo ""
+  echo -e "Available pullers:"
+  for f in "${PULLERS_DIR}"/*.sh; do
+    local_name=$(basename "$f" .sh)
+    echo -e "  ${CYAN}${local_name}${RESET}"
+  done
+  echo ""
+  echo -e "Create a custom puller: cp ${PULLERS_DIR}/custom.sh ${PULLERS_DIR}/${SOURCE_TYPE}.sh"
+  exit 1
+fi
+
+# ─── Source the Puller ────────────────────────────────────────────────────────
+source "$PULLER_FILE"
+
+# ─── Banner ───────────────────────────────────────────────────────────────────
 echo -e "${MAGENTA}${BOLD}"
 echo "  ┌─────────────────────────────────────────────┐"
-echo "  │       ⚡ TaskLot — Notion Pull ⚡           │"
+echo "  │         ⚡ TaskLot — Task Puller ⚡          │"
 echo "  └─────────────────────────────────────────────┘"
 echo -e "${RESET}"
 
-echo -e "${CYAN}▶ Pulling tasks from Notion database: ${BOLD}${NOTION_DB_ID}${RESET}"
+echo -e "${CYAN}▶ Source:${RESET} ${BOLD}${SOURCE_TYPE}${RESET} (${PULLER_FILE})"
+echo -e "${CYAN}▶ Config:${RESET} ${CONFIG_FILE}"
+echo -e "${CYAN}▶ Output:${RESET} ${OUTPUT_FILE}"
 echo ""
 
-# Use Claude Code to query Notion via MCP and output structured JSON
-PULL_PROMPT="You have access to Notion via MCP. Query the Notion database with ID: ${NOTION_DB_ID}
-
-Fetch ALL pages/tickets from this database. For each ticket, extract:
-- id: a short identifier (use the Notion page ID or a sequential number like TASK-001)
-- title: the page title
-- description: the full page content/body (this includes the agent reference like 'read backend-developer.agent.md')
-- status: the status property (map to 'pending' if it's 'To Do' or 'Not Started', 'done' if 'Done' or 'Complete')
-- priority: priority if available (high, medium, low), default to 'medium'
-- notion_page_id: the Notion page ID (for posting comments back later)
-
-Output ONLY valid JSON in this exact format, no markdown fences, no explanation:
-
-{
-  \"pulled_at\": \"ISO_TIMESTAMP\",
-  \"source\": \"notion\",
-  \"database_id\": \"${NOTION_DB_ID}\",
-  \"tasks\": [
-    {
-      \"id\": \"TASK-001\",
-      \"title\": \"Task title here\",
-      \"description\": \"Full description including agent reference...\",
-      \"status\": \"pending\",
-      \"priority\": \"medium\",
-      \"notion_page_id\": \"notion-page-id-here\",
-      \"completed_at\": null,
-      \"failure_reason\": null
-    }
-  ]
-}"
-
-echo -e "${BLUE}ℹ Calling Claude Code to fetch Notion data...${RESET}"
+# ─── Pull Tasks ───────────────────────────────────────────────────────────────
+echo -e "${BLUE}ℹ Fetching tasks from ${BOLD}${SOURCE_TYPE}${RESET}${BLUE}...${RESET}"
 echo ""
 
-RESULT=$(echo "$PULL_PROMPT" | claude -p --output-format text 2>&1)
+RESULT=$(pull_tasks "$CONFIG_FILE" "$OUTPUT_FILE" 2>&1)
 
-# Try to extract JSON from the result
+# ─── Parse & Validate JSON ───────────────────────────────────────────────────
 TASKS_JSON=$(echo "$RESULT" | grep -Pzo '(?s)\{.*\}' | tr '\0' '\n' || echo "")
 
 if [[ -z "$TASKS_JSON" ]]; then
-  echo -e "${RED}✖ Failed to parse tasks from Notion response${RESET}"
+  echo -e "${RED}✖ Failed to parse tasks from ${SOURCE_TYPE} response${RESET}"
   echo -e "${DIM}Raw response:${RESET}"
   echo "$RESULT"
   exit 1
 fi
 
-# Validate JSON
 if ! echo "$TASKS_JSON" | jq . > /dev/null 2>&1; then
-  echo -e "${RED}✖ Invalid JSON returned${RESET}"
+  echo -e "${RED}✖ Invalid JSON returned from ${SOURCE_TYPE} puller${RESET}"
   echo "$TASKS_JSON"
   exit 1
 fi
 
-# Write tasks.json
-echo "$TASKS_JSON" | jq '.' > "${SCRIPT_DIR}/tasks.json"
+# Validate required fields
+if ! echo "$TASKS_JSON" | jq -e '.tasks' > /dev/null 2>&1; then
+  echo -e "${RED}✖ JSON missing required 'tasks' array${RESET}"
+  echo "$TASKS_JSON" | jq '.' 2>/dev/null || echo "$TASKS_JSON"
+  exit 1
+fi
 
-TASK_COUNT=$(jq '.tasks | length' "${SCRIPT_DIR}/tasks.json")
+# ─── Write tasks.json ────────────────────────────────────────────────────────
+echo "$TASKS_JSON" | jq '.' > "$OUTPUT_FILE"
 
-echo -e "${GREEN}✔ Successfully pulled ${BOLD}${TASK_COUNT}${RESET}${GREEN} tasks${RESET}"
-echo -e "${DIM}  Saved to: ${SCRIPT_DIR}/tasks.json${RESET}"
+TASK_COUNT=$(jq '.tasks | length' "$OUTPUT_FILE")
+PENDING_COUNT=$(jq '[.tasks[] | select(.status == "pending")] | length' "$OUTPUT_FILE")
+DONE_COUNT=$(jq '[.tasks[] | select(.status == "done")] | length' "$OUTPUT_FILE")
+
+echo -e "${GREEN}✔ Successfully pulled ${BOLD}${TASK_COUNT}${RESET}${GREEN} tasks (${PENDING_COUNT} pending, ${DONE_COUNT} done)${RESET}"
+echo -e "${DIM}  Saved to: ${OUTPUT_FILE}${RESET}"
 echo ""
 
-# Preview tasks
+# ─── Preview Tasks ────────────────────────────────────────────────────────────
 echo -e "${CYAN}${BOLD}Task Preview:${RESET}"
 echo ""
-jq -r '.tasks[] | "  [\(.status | if . == "pending" then "○" elif . == "done" then "✔" else "✖" end)] \(.id) — \(.title) (\(.priority))"' "${SCRIPT_DIR}/tasks.json"
+
+jq -r '.tasks[] | "  [\(.status | if . == "pending" then "○" elif . == "done" then "✔" else "✖" end)] \(.id) — \(.title) (\(.priority))"' "$OUTPUT_FILE"
+
 echo ""
+
+# Show agent references
+AGENTS_USED=$(jq -r '.tasks[].description' "$OUTPUT_FILE" | grep -oiE '(read|use|load|agent:)\s*[a-zA-Z0-9_-]+\.agent\.md' | grep -oE '[a-zA-Z0-9_-]+\.agent\.md' | sort -u || true)
+
+if [[ -n "$AGENTS_USED" ]]; then
+  echo -e "${CYAN}${BOLD}Agents Referenced:${RESET}"
+  echo "$AGENTS_USED" | while read -r agent; do
+    if [[ -f "${SCRIPT_DIR}/agents/${agent}" ]]; then
+      echo -e "  ${GREEN}✔${RESET} ${agent}"
+    else
+      echo -e "  ${RED}✖${RESET} ${agent} ${DIM}(not found in agents/)${RESET}"
+    fi
+  done
+  echo ""
+fi
+
 echo -e "${GREEN}${BOLD}Ready to run: ./tasklot.sh${RESET}"

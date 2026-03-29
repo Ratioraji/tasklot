@@ -128,15 +128,15 @@ tasklot/
 │                                 # produces summary report.
 │                                 # This is the only file you run.
 │
-├── pull-tasks.sh                 # Notion → tasks.json converter
-│                                 # Connects to Notion via Claude Code MCP,
-│                                 # fetches all tickets from your board,
-│                                 # generates a local tasks.json snapshot.
+├── pull-tasks.sh                 # Task puller — fetches from your PM tool
+│                                 # Reads task_source.type from config, delegates
+│                                 # to the right puller in pullers/, generates
+│                                 # a local tasks.json snapshot.
 │                                 # Run this before tasklot.sh.
 │
 ├── config.json                   # Project-level configuration
-│                                 # Engine selection, repo path, branch settings,
-│                                 # test commands, API URLs, Notion DB ID.
+│                                 # Engine selection, task source, repo path,
+│                                 # branch settings, test commands, API URLs.
 │                                 # One config per project.
 │
 ├── tasks.json                    # Generated task queue (auto-created)
@@ -147,6 +147,31 @@ tasklot/
 ├── tasks.example.json            # Example tasks file
 │                                 # Shows the expected JSON schema with sample
 │                                 # tickets referencing different agents.
+│
+├── pullers/                      # Pluggable task source integrations
+│   │                             # Each file wraps one PM tool's API or MCP.
+│   │                             # pull-tasks.sh sources the active puller and
+│   │                             # calls pull_tasks() — that's the only contract.
+│   │
+│   ├── notion.sh                 # Puller: Notion
+│   │                             # Fetches from a Notion database via Claude
+│   │                             # Code MCP. Requires database_id in config.
+│   │
+│   ├── jira.sh                   # Puller: Jira
+│   │                             # Fetches from a Jira project via Atlassian MCP.
+│   │                             # Supports JQL filters. Requires project_key.
+│   │
+│   ├── linear.sh                 # Puller: Linear
+│   │                             # Fetches from a Linear team via Linear MCP.
+│   │                             # Supports project and status filtering.
+│   │
+│   ├── github.sh                 # Puller: GitHub Issues
+│   │                             # Fetches open issues via gh CLI directly.
+│   │                             # No AI engine needed. Supports label/milestone filters.
+│   │
+│   └── custom.sh                 # Puller: Template for your own
+│                                 # Copy this, implement pull_tasks(), done.
+│                                 # Any tool that outputs TaskLot JSON works.
 │
 ├── engines/                      # Pluggable AI coding engines
 │   │                             # Each file wraps one AI tool's CLI.
@@ -247,11 +272,12 @@ Edit `config.json` with your project details:
   "curl_tests_enabled": true,
   "api_base_url": "http://localhost:3000",
   "auto_document": true,
-  "notion": {
-    "enabled": true,
-    "database_id": "YOUR_NOTION_DATABASE_ID",
-    "status_field": "Status",
-    "agent_field_in_description": true
+  "task_source": {
+    "type": "notion",
+    "config": {
+      "database_id": "YOUR_NOTION_DATABASE_ID",
+      "status_field": "Status"
+    }
   }
 }
 ```
@@ -276,7 +302,7 @@ A good agent file covers:
 
 See `agents/README.md` for a detailed guide.
 
-### 3. Set Up Your Notion Tickets
+### 3. Set Up Your Tickets
 
 Each ticket's description starts with an agent reference, telling TaskLot which agent context to load:
 
@@ -293,27 +319,36 @@ Build the user authentication system:
 - Input validation on all endpoints
 ```
 
-The first line (`read backend-developer.agent.md`) is the agent reference. Everything after is the task specification.
+The first line (`read backend-developer.agent.md`) is the agent reference. Everything after is the task specification. This format works the same across Notion, Jira, Linear, and GitHub Issues.
 
-### 4. Pull Tasks from Notion
+### 4. Pull Tasks
 
 ```bash
 ./pull-tasks.sh
 ```
 
-This connects to Notion via Claude Code MCP, fetches all tickets, and generates `tasks.json`. You'll see a preview:
+This connects to your configured task source (Notion, Jira, Linear, or GitHub), fetches all tickets, and generates `tasks.json`. You'll see a preview:
 
 ```
-  ⚡ TaskLot — Notion Pull ⚡
+  ⚡ TaskLot — Task Puller ⚡
+
+  ▶ Source: notion (pullers/notion.sh)
+  ▶ Config: config.json
+
+  ✔ Successfully pulled 3 tasks (3 pending, 0 done)
 
   [○] TASK-001 — Setup project boilerplate (high)
   [○] TASK-002 — Implement user authentication (high)
   [○] TASK-003 — Build dashboard UI components (medium)
 
+  Agents Referenced:
+    ✔ backend-developer.agent.md
+    ✖ frontend-developer.agent.md (not found in agents/)
+
   Ready to run: ./tasklot.sh
 ```
 
-Review the order. Reorder in `tasks.json` if needed.
+Review the order. Reorder in `tasks.json` if needed. Missing agents will be flagged.
 
 ### 5. Run TaskLot
 
@@ -342,7 +377,7 @@ TaskLot will:
 5. Run the three QA validation gates
 6. Fix and retry if anything fails (up to 3 attempts)
 7. Commit with conventional commits, push, create PR
-8. Document the solution back on the Notion ticket
+8. Document the solution back on the ticket
 9. Move to the next task and repeat
 
 When complete, you get a summary:
@@ -360,7 +395,7 @@ When complete, you get a summary:
 
 ## Configuration
 
-`config.json` controls all project-level settings. Here's every field:
+`config.json` controls all project-level settings. Here's the full structure:
 
 ```json
 {
@@ -375,11 +410,12 @@ When complete, you get a summary:
   "curl_tests_enabled": true,
   "api_base_url": "http://localhost:3000",
   "auto_document": true,
-  "notion": {
-    "enabled": true,
-    "database_id": "YOUR_NOTION_DATABASE_ID",
-    "status_field": "Status",
-    "agent_field_in_description": true
+  "task_source": {
+    "type": "notion",
+    "config": {
+      "database_id": "YOUR_NOTION_DATABASE_ID",
+      "status_field": "Status"
+    }
   }
 }
 ```
@@ -387,25 +423,80 @@ When complete, you get a summary:
 ### Field Reference
 
 
-| Field                               | Type    | Default                   | Description                                                                                                                                                      |
-| ------------------------------------- | --------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `project_name`                      | string  | —                        | Human-readable project name (used in logs)                                                                                                                       |
-| `project_dir`                       | string  | `"."`                     | Absolute path to your project's git repo. All git operations and code execution happen here.                                                                     |
-| `engine`                            | string  | `"claude-code"`           | Which AI engine to use. Must match a filename in`engines/` (without `.sh`). Options: `claude-code`, `aider`, `codex`, `custom`, or any custom engine you create. |
-| `base_branch`                       | string  | `"main"`                  | The default branch PRs target. Also the branch TaskLot pulls from before creating feature branches (unless stacking).                                            |
-| `branch_prefix`                     | string  | `"feat"`                  | Fallback prefix for branch names if the git agent doesn't generate one. The git agent typically overrides this with proper conventional prefixes.                |
-| `auto_pr`                           | boolean | `true`                    | Whether to automatically create GitHub PRs after successful validation. Set to`false` if you prefer to review locally first.                                     |
-| `max_retries`                       | number  | `3`                       | How many times TaskLot will attempt to fix and re-validate a task before marking it as failed and moving on.                                                     |
-| `test_command`                      | string  | `""`                      | The shell command to run your test suite. Examples:`"npm test"`, `"bun test"`, `"pytest"`, `"go test ./..."`, `"cargo test"`. Leave empty to skip the test gate. |
-| `curl_tests_enabled`                | boolean | `false`                   | Enable Gate 3 — dynamic curl-based API endpoint testing. Only relevant for backend/API tasks.                                                                   |
-| `api_base_url`                      | string  | `"http://localhost:3000"` | Base URL for curl tests. Your server must be running at this URL during execution.                                                                               |
-| `auto_document`                     | boolean | `true`                    | Whether to post implementation documentation back to the Notion ticket after task completion.                                                                    |
-| `notion.enabled`                    | boolean | `true`                    | Enable Notion integration for pulling tasks and posting documentation.                                                                                           |
-| `notion.database_id`                | string  | —                        | Your Notion database ID. Find it in the Notion URL:`notion.so/{workspace}/{database_id}`.                                                                        |
-| `notion.status_field`               | string  | `"Status"`                | The name of the status property in your Notion database. Used to map ticket statuses to TaskLot statuses.                                                        |
-| `notion.agent_field_in_description` | boolean | `true`                    | Whether agent references are embedded in ticket descriptions (the`read xxx.agent.md` pattern).                                                                   |
+| Field                | Type    | Default                   | Description                                                                                                                                                      |
+| ---------------------- | --------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `project_name`       | string  | —                        | Human-readable project name (used in logs)                                                                                                                       |
+| `project_dir`        | string  | `"."`                     | Absolute path to your project's git repo. All git operations and code execution happen here.                                                                     |
+| `engine`             | string  | `"claude-code"`           | Which AI engine to use. Must match a filename in`engines/` (without `.sh`). Options: `claude-code`, `aider`, `codex`, `custom`, or any custom engine you create. |
+| `base_branch`        | string  | `"main"`                  | The default branch PRs target. Also the branch TaskLot pulls from before creating feature branches (unless stacking).                                            |
+| `branch_prefix`      | string  | `"feat"`                  | Fallback prefix for branch names if the git agent doesn't generate one. The git agent typically overrides this with proper conventional prefixes.                |
+| `auto_pr`            | boolean | `true`                    | Whether to automatically create GitHub PRs after successful validation. Set to`false` if you prefer to review locally first.                                     |
+| `max_retries`        | number  | `3`                       | How many times TaskLot will attempt to fix and re-validate a task before marking it as failed and moving on.                                                     |
+| `test_command`       | string  | `""`                      | The shell command to run your test suite. Examples:`"npm test"`, `"bun test"`, `"pytest"`, `"go test ./..."`, `"cargo test"`. Leave empty to skip the test gate. |
+| `curl_tests_enabled` | boolean | `false`                   | Enable Gate 3 — dynamic curl-based API endpoint testing. Only relevant for backend/API tasks.                                                                   |
+| `api_base_url`       | string  | `"http://localhost:3000"` | Base URL for curl tests. Your server must be running at this URL during execution.                                                                               |
+| `auto_document`      | boolean | `true`                    | Whether to post implementation documentation back to the source ticket after task completion. Works with all supported task sources.                             |
+| `task_source.type`   | string  | —                        | Which PM tool to pull tasks from. Must match a filename in`pullers/` (without `.sh`). Options: `notion`, `jira`, `linear`, `github`, `custom`.                   |
+| `task_source.config` | object  | —                        | Source-specific configuration. Fields vary per puller — see below.                                                                                              |
+
+### Task Source Configuration
+
+Each puller requires different config fields in `task_source.config`:
+
+**Notion:**
+
+```json
+"task_source": {
+  "type": "notion",
+  "config": {
+    "database_id": "YOUR_NOTION_DATABASE_ID",
+    "status_field": "Status"
+  }
+}
+```
+
+**Jira:**
+
+```json
+"task_source": {
+  "type": "jira",
+  "config": {
+    "project_key": "PROJ",
+    "base_url": "https://your-org.atlassian.net",
+    "jql": "project = PROJ AND status != Done ORDER BY priority DESC"
+  }
+}
+```
+
+**Linear:**
+
+```json
+"task_source": {
+  "type": "linear",
+  "config": {
+    "team_key": "ENG",
+    "project_name": "Backend v2",
+    "status_filter": "backlog,todo,in_progress"
+  }
+}
+```
+
+**GitHub Issues:**
+
+```json
+"task_source": {
+  "type": "github",
+  "config": {
+    "repo": "owner/repo-name",
+    "label": "tasklot",
+    "milestone": "v1.0"
+  }
+}
+```
 
 ### Multiple Projects
+
+Maintain separate configs for different projects:
 
 Maintain separate configs for different projects:
 
@@ -415,26 +506,7 @@ Maintain separate configs for different projects:
 ./tasklot.sh --config configs/ml-pipeline.json
 ```
 
-## Configuration
-
-`config.json` — all settings for your project:
-
-
-| Key                  | Description                                                  | Default                 |
-| ---------------------- | -------------------------------------------------------------- | ------------------------- |
-| `project_name`       | Your project name                                            | —                      |
-| `project_dir`        | Absolute path to your project repo                           | —                      |
-| `engine`             | AI engine to use (`claude-code`, `aider`, `codex`, `custom`) | `claude-code`           |
-| `base_branch`        | Branch to create PRs against                                 | `main`                  |
-| `branch_prefix`      | Prefix for feature branches                                  | `feat`                  |
-| `auto_pr`            | Automatically create GitHub PRs                              | `true`                  |
-| `max_retries`        | Max validation retry attempts per task                       | `3`                     |
-| `test_command`       | Command to run your test suite                               | `""`                    |
-| `curl_tests_enabled` | Enable deep API curl testing                                 | `false`                 |
-| `api_base_url`       | Base URL for curl tests                                      | `http://localhost:3000` |
-| `auto_document`      | Post implementation docs to Notion                           | `true`                  |
-| `notion.enabled`     | Enable Notion integration                                    | `true`                  |
-| `notion.database_id` | Your Notion database ID                                      | —                      |
+---
 
 ## Agents
 
@@ -638,7 +710,9 @@ Tasks live in `tasks.json` — either generated by `pull-tasks.sh` from Notion o
 {
   "pulled_at": "2026-03-29T12:00:00Z",
   "source": "notion",
-  "database_id": "your-notion-db-id",
+  "source_config": {
+    "database_id": "your-notion-db-id"
+  },
   "tasks": [
     {
       "id": "TASK-001",
@@ -646,7 +720,7 @@ Tasks live in `tasks.json` — either generated by `pull-tasks.sh` from Notion o
       "description": "read backend-developer.agent.md\n\nFull task specification...",
       "status": "pending",
       "priority": "high",
-      "notion_page_id": "notion-page-uuid",
+      "source_id": "notion-page-uuid-or-jira-key-or-issue-number",
       "completed_at": null,
       "failure_reason": null
     }
@@ -657,16 +731,16 @@ Tasks live in `tasks.json` — either generated by `pull-tasks.sh` from Notion o
 ### Field Reference
 
 
-| Field            | Type        | Description                                                                                                                         |
-| ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`             | string      | Unique task identifier (e.g.`TASK-001`). Used in branch names and commit messages.                                                  |
-| `title`          | string      | Short task title. Used in PR titles and commit messages.                                                                            |
-| `description`    | string      | Full task specification. First line should be the agent reference (`read xxx.agent.md`), followed by the detailed task description. |
-| `status`         | string      | One of:`pending`, `done`, `failed`. TaskLot updates this as it progresses.                                                          |
-| `priority`       | string      | `high`, `medium`, or `low`. Informational — TaskLot executes in array order.                                                       |
-| `notion_page_id` | string      | The Notion page UUID. Used for posting documentation back to the ticket.                                                            |
-| `completed_at`   | string/null | ISO timestamp set when the task completes successfully.                                                                             |
-| `failure_reason` | string/null | Error description set when the task fails after max retries.                                                                        |
+| Field            | Type        | Description                                                                                                                                                                                 |
+| ------------------ | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | string      | Unique task identifier (e.g.`TASK-001`). Used in branch names and commit messages.                                                                                                          |
+| `title`          | string      | Short task title. Used in PR titles and commit messages.                                                                                                                                    |
+| `description`    | string      | Full task specification. First line should be the agent reference (`read xxx.agent.md`), followed by the detailed task description.                                                         |
+| `status`         | string      | One of:`pending`, `done`, `failed`. TaskLot updates this as it progresses.                                                                                                                  |
+| `priority`       | string      | `high`, `medium`, or `low`. Informational — TaskLot executes in array order.                                                                                                               |
+| `source_id`      | string      | The identifier from your PM tool (Notion page ID, Jira issue key, Linear UUID, GitHub issue number). Used for posting documentation back to the ticket. Leave empty if not using a PM tool. |
+| `completed_at`   | string/null | ISO timestamp set when the task completes successfully.                                                                                                                                     |
+| `failure_reason` | string/null | Error description set when the task fails after max retries.                                                                                                                                |
 
 ### Task Execution Order
 
@@ -676,7 +750,7 @@ Tasks with `status: "done"` or `status: "failed"` are skipped.
 
 ### Manual Task Creation
 
-You don't need Notion. Create `tasks.json` manually:
+You don't need any PM tool. Create `tasks.json` manually:
 
 ```json
 {
@@ -689,7 +763,7 @@ You don't need Notion. Create `tasks.json` manually:
       "description": "read backend-developer.agent.md\n\nInitialise the project with:\n- Express + TypeScript boilerplate\n- ESLint + Prettier\n- Health check endpoint at GET /health\n- Error handling middleware",
       "status": "pending",
       "priority": "high",
-      "notion_page_id": "",
+      "source_id": "",
       "completed_at": null,
       "failure_reason": null
     }
@@ -747,7 +821,7 @@ The git operations agent creates a GitHub PR with a structured description using
 
 ### Step 10: Document
 
-If Notion integration is enabled, TaskLot posts an implementation summary as a comment on the Notion ticket.
+If `auto_document` is enabled and the task has a `source_id`, TaskLot posts an implementation summary as a comment on the original ticket — whether that's in Notion, Jira, Linear, or GitHub Issues.
 
 ### Step 11: Next Task
 
@@ -885,21 +959,38 @@ gh pr edit 42 --base main
 
 ---
 
-## Notion Integration
+## Task Sources (Pullers)
 
-TaskLot integrates with Notion in two ways:
+TaskLot supports pulling tasks from multiple project management tools. Like engines, pullers are pluggable — each one is a small shell script in `pullers/`.
 
-### 1. Pulling Tasks (`pull-tasks.sh`)
+### Available Pullers
 
-Connects to your Notion database via Claude Code MCP, fetches all tickets, and generates `tasks.json`.
 
-**Requirements:**
+| Puller   | Config Type | Source          | How It Pulls                | Requirements                   |
+| ---------- | ------------- | ----------------- | ----------------------------- | -------------------------------- |
+| `notion` | `"notion"`  | Notion database | Claude Code + Notion MCP    | Claude Code CLI, Notion MCP    |
+| `jira`   | `"jira"`    | Jira project    | Claude Code + Atlassian MCP | Claude Code CLI, Atlassian MCP |
+| `linear` | `"linear"`  | Linear team     | Claude Code + Linear MCP    | Claude Code CLI, Linear MCP    |
+| `github` | `"github"`  | GitHub Issues   | `gh` CLI directly           | GitHub CLI (`gh`)              |
+| `custom` | `"custom"`  | Your tool       | You implement it            | Whatever your tool needs       |
 
-- Claude Code CLI installed
-- Notion MCP configured in Claude Code
-- `notion.database_id` set in `config.json`
+### Switching Task Sources
 
-**Notion Database Setup:**
+Change `task_source.type` in config and update the config fields:
+
+```json
+{ "task_source": { "type": "jira", "config": { "project_key": "PROJ" } } }
+```
+
+Then run `./pull-tasks.sh` — it automatically uses the right puller.
+
+You can also override the source from the command line:
+
+```bash
+./pull-tasks.sh --source github
+```
+
+### Notion Setup
 
 Your Notion database should have at minimum:
 
@@ -907,26 +998,57 @@ Your Notion database should have at minimum:
 - **Status** — a select/status property (e.g. "To Do", "In Progress", "Done")
 - **Page content** — the full task description with agent reference
 
-Optional but useful:
+Optional but useful: Priority (high/medium/low), Tags/Labels for categorisation.
 
-- **Priority** — high / medium / low
-- **Tags/Labels** — for categorisation
+### Jira Setup
 
-### 2. Documenting Solutions
+Ensure the Atlassian MCP is configured in Claude Code. Your Jira issues should contain the agent reference and task description in the issue description body. The puller supports JQL filtering — customise the `jql` config field to control which issues are pulled.
 
-After a task completes, TaskLot posts an implementation summary as a comment on the Notion ticket. This includes what was implemented, key technical decisions, files created or modified, patterns used, and testing coverage.
+### Linear Setup
+
+Ensure the Linear MCP is configured in Claude Code. Issues are filtered by team key and optionally by project name and status. The agent reference goes in the issue description.
+
+### GitHub Issues Setup
+
+The GitHub puller uses `gh` CLI directly — no AI engine needed. It maps GitHub labels to priorities (`priority:high` / `P0` / `P1` → high, `priority:low` / `P3` / `P4` → low). Filter by label or milestone in config.
+
+### Documenting Solutions Back
+
+After a task completes, TaskLot posts an implementation summary as a comment on the original ticket — regardless of which source the task came from. Each puller's documentation format is adapted for its platform (Notion comment, Jira comment, Linear comment, GitHub issue comment).
 
 Set `auto_document: true` in config to enable this.
 
-### Without Notion
+### Creating a Custom Puller
 
-TaskLot works perfectly without Notion. Create `tasks.json` manually and set:
+```bash
+cp pullers/custom.sh pullers/asana.sh
+```
 
-```json
-{
-  "notion": { "enabled": false }
+Implement one function:
+
+```bash
+pull_tasks() {
+  local config_file="$1"
+  local output_file="$2"
+
+  # Read your config values
+  local my_field
+  my_field=$(jq -r '.task_source.config.my_field' "$config_file")
+
+  # Output valid TaskLot JSON to stdout
+  echo '{ "tasks": [ ... ] }'
 }
 ```
+
+Set it in config:
+
+```json
+{ "task_source": { "type": "asana", "config": { ... } } }
+```
+
+### Without Any PM Tool
+
+TaskLot works perfectly without any PM tool. Create `tasks.json` manually — see `tasks.example.json` for the format. The orchestrator only needs the JSON file.
 
 ---
 
@@ -964,13 +1086,36 @@ Options:
 
 ### `pull-tasks.sh`
 
-Fetches tasks from Notion.
+Fetches tasks from your configured PM tool.
 
 ```
-Usage: ./pull-tasks.sh [--config config.json]
+Usage: ./pull-tasks.sh [OPTIONS]
+
+Options:
+  --config FILE     Path to config.json (default: ./config.json)
+  --source TYPE     Override task source (notion, jira, linear, github, custom)
+  --output FILE     Output file path (default: ./tasks.json)
+  --list            List available pullers
+  --help            Show help
 ```
 
-**Output:** Creates `tasks.json` in the TaskLot directory with a preview of all pulled tasks.
+**Examples:**
+
+```bash
+# Pull from configured source
+./pull-tasks.sh
+
+# Override source from CLI
+./pull-tasks.sh --source github
+
+# Use a different config
+./pull-tasks.sh --config configs/jira-project.json
+
+# List available pullers
+./pull-tasks.sh --list
+```
+
+**Output:** Creates `tasks.json` with a preview of all pulled tasks and validation of referenced agent files.
 
 ---
 
@@ -1010,13 +1155,16 @@ Logs are excluded from git via `.gitignore`.
 | **gh**           | GitHub CLI (PR creation) | `brew install gh` then `gh auth login` |
 | **An AI engine** | Code generation          | See[Engines](#engines)                 |
 
-**Optional:**
+**Optional (depends on your task source):**
 
 
-| Tool                | Purpose                | When Needed                    |
-| --------------------- | ------------------------ | -------------------------------- |
-| **Claude Code CLI** | Notion MCP integration | When using Notion for tasks    |
-| **curl**            | API endpoint testing   | When`curl_tests_enabled: true` |
+| Tool                | Purpose                                  | When Needed                                       |
+| --------------------- | ------------------------------------------ | --------------------------------------------------- |
+| **Claude Code CLI** | MCP integration for Notion, Jira, Linear | When using Notion, Jira, or Linear as task source |
+| **Notion MCP**      | Pull tasks from Notion                   | `task_source.type: "notion"`                      |
+| **Atlassian MCP**   | Pull tasks from Jira                     | `task_source.type: "jira"`                        |
+| **Linear MCP**      | Pull tasks from Linear                   | `task_source.type: "linear"`                      |
+| **curl**            | API endpoint testing                     | When`curl_tests_enabled: true`                    |
 
 ---
 
@@ -1057,11 +1205,11 @@ Logs are excluded from git via `.gitignore`.
 
 ## FAQ
 
-**Can I use TaskLot without Notion?**
-Yes. Create `tasks.json` manually and set `notion.enabled: false` in config.
+**Can I use TaskLot without a PM tool?**
+Yes. Create `tasks.json` manually — see `tasks.example.json` for the format. No PM tool integration required.
 
-**Can I use TaskLot with Linear / Jira / Asana?**
-Not natively yet, but you can write a custom `pull-tasks.sh` that queries any project management tool and outputs the same `tasks.json` format. The orchestrator doesn't care where tasks come from.
+**Which PM tools are supported?**
+Notion, Jira, Linear, and GitHub Issues out of the box. Each has a puller script in `pullers/`. You can also create a custom puller for any tool (Asana, Trello, ClickUp, etc.) by copying `pullers/custom.sh` and implementing the `pull_tasks()` function.
 
 **What happens if the AI engine produces bad code?**
 The three QA gates catch most issues. If a task still fails after `max_retries`, it's marked as failed and TaskLot moves on. You can fix it manually, set the status back to `"pending"`, and re-run.
@@ -1104,4 +1252,4 @@ MIT
 
 Built by **Sey** — Autonomous AI workflows for modern engineering.
 
-[GitHub](https://github.com/ratioraji) · [Twitter](https://x.com/seyi_life)
+[GitHub](https://github.com/ratioraji) ·[Twitter](https://x.com/seyi_life)
