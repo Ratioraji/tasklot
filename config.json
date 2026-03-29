@@ -17,10 +17,11 @@
 
   "auto_document": true,
 
-  "notion": {
-    "enabled": true,
-    "database_id": "YOUR_NOTION_DATABASE_ID",
-    "status_field": "Status",
-    "agent_field_in_description": true
+  "task_source": {
+    "type": "notion",
+    "config": {
+      "database_id": "YOUR_NOTION_DATABASE_ID",
+      "status_field": "Status"
+    }
   }
 }
