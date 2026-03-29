@@ -1,0 +1,37 @@
+{
+  "pulled_at": "2026-03-29T12:00:00Z",
+  "source": "notion",
+  "database_id": "YOUR_NOTION_DATABASE_ID",
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Setup project boilerplate and database connection",
+      "description": "read backend-developer.agent.md\n\nSetup the initial project structure with:\n- Express/NestJS boilerplate\n- PostgreSQL connection via TypeORM\n- Environment configuration (.env)\n- Base error handling middleware\n- Health check endpoint at GET /health\n- Project folder structure as per agent architecture",
+      "status": "pending",
+      "priority": "high",
+      "notion_page_id": "abc123-notion-page-id",
+      "completed_at": null,
+      "failure_reason": null
+    },
+    {
+      "id": "TASK-002",
+      "title": "Implement user authentication endpoints",
+      "description": "read backend-developer.agent.md\n\nBuild the authentication system:\n- POST /auth/register — register new user (email, password, name)\n- POST /auth/login — login with email/password, return JWT\n- POST /auth/refresh — refresh expired token\n- GET /auth/me — get current user profile (protected)\n- Password hashing with bcrypt\n- JWT token generation and validation\n- Input validation on all endpoints",
+      "status": "pending",
+      "priority": "high",
+      "notion_page_id": "def456-notion-page-id",
+      "completed_at": null,
+      "failure_reason": null
+    },
+    {
+      "id": "TASK-003",
+      "title": "Build dashboard UI components",
+      "description": "read frontend-developer.agent.md\n\nCreate the main dashboard page with:\n- Sidebar navigation component\n- Top header with user avatar and notifications\n- Stats cards row (total users, revenue, active sessions, growth %)\n- Recent activity table with pagination\n- Responsive layout (mobile + desktop)\n- Use the design system colors and typography from agent file",
+      "status": "pending",
+      "priority": "medium",
+      "notion_page_id": "ghi789-notion-page-id",
+      "completed_at": null,
+      "failure_reason": null
+    }
+  ]
+}

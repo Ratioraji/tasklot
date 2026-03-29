@@ -1,0 +1,26 @@
+{
+  "project_name": "my-project",
+  "project_dir": "/path/to/your/project",
+
+  "engine": "claude-code",
+
+  "base_branch": "main",
+  "branch_prefix": "feat",
+  "auto_pr": true,
+
+  "max_retries": 3,
+
+  "test_command": "npm test",
+
+  "curl_tests_enabled": true,
+  "api_base_url": "http://localhost:3000",
+
+  "auto_document": true,
+
+  "notion": {
+    "enabled": true,
+    "database_id": "YOUR_NOTION_DATABASE_ID",
+    "status_field": "Status",
+    "agent_field_in_description": true
+  }
+}
