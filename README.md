@@ -1104,4 +1104,4 @@ MIT
 
 Built by **Sey** — Autonomous AI workflows for modern engineering.
 
-[GitHub](https://github.com/your-username) · [Blog](https://your-blog.com) · [Twitter](https://x.com/seyi_life)
+[GitHub](https://github.com/ratioraji) · [Twitter](https://x.com/seyi_life)
