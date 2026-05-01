@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { loadTodos, saveTodos } from "@/lib/storage";
-import { createTodo, removeTodo, toggleTodo } from "@/lib/todo";
-import type { Todo } from "@/lib/types";
+import { createTodo, filterTodos, removeTodo, toggleTodo } from "@/lib/todo";
+import type { Todo, TodoFilter } from "@/lib/types";
 
 export function useTodos() {
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [filter, setFilter] = useState<TodoFilter>("all");
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
@@ -35,5 +36,36 @@ export function useTodos() {
     setTodos((prev) => removeTodo(prev, id));
   }, []);
 
-  return { todos, addTodo, toggle, remove, isHydrated };
+  const clearCompleted = useCallback(() => {
+    setTodos((prev) => prev.filter((todo) => !todo.completed));
+  }, []);
+
+  const visibleTodos = useMemo(
+    () => filterTodos(todos, filter),
+    [todos, filter],
+  );
+
+  const activeCount = useMemo(
+    () => todos.filter((todo) => !todo.completed).length,
+    [todos],
+  );
+
+  const hasCompleted = useMemo(
+    () => todos.some((todo) => todo.completed),
+    [todos],
+  );
+
+  return {
+    todos,
+    visibleTodos,
+    filter,
+    setFilter,
+    activeCount,
+    hasCompleted,
+    addTodo,
+    toggle,
+    remove,
+    clearCompleted,
+    isHydrated,
+  };
 }

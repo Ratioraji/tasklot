@@ -1,11 +1,24 @@
 "use client";
 
+import { TodoFooter } from "@/components/todo-footer";
 import { TodoInput } from "@/components/todo-input";
 import { TodoList } from "@/components/todo-list";
 import { useTodos } from "@/hooks/use-todos";
 
 export function TodoApp() {
-  const { todos, addTodo, toggle, remove, isHydrated } = useTodos();
+  const {
+    todos,
+    visibleTodos,
+    filter,
+    setFilter,
+    activeCount,
+    hasCompleted,
+    addTodo,
+    toggle,
+    remove,
+    clearCompleted,
+    isHydrated,
+  } = useTodos();
 
   if (!isHydrated) {
     return (
@@ -19,7 +32,21 @@ export function TodoApp() {
   return (
     <div className="flex flex-col gap-6">
       <TodoInput onAdd={addTodo} />
-      <TodoList todos={todos} onToggle={toggle} onRemove={remove} />
+      <TodoList
+        todos={visibleTodos}
+        filter={filter}
+        onToggle={toggle}
+        onRemove={remove}
+      />
+      {todos.length > 0 && (
+        <TodoFooter
+          activeCount={activeCount}
+          hasCompleted={hasCompleted}
+          filter={filter}
+          onFilterChange={setFilter}
+          onClearCompleted={clearCompleted}
+        />
+      )}
     </div>
   );
 }
