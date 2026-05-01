@@ -1,27 +1,24 @@
 {
-  "project_name": "my-project",
-  "project_dir": "/path/to/your/project",
+  "project_name": "nextjs-todo-app",
+  "project_dir": "/Users/mac/Documents/labs/tasklot-todo-app",
 
   "engine": "claude-code",
 
   "base_branch": "main",
   "branch_prefix": "feat",
-  "auto_pr": true,
+  "auto_pr": false,
 
   "max_retries": 3,
 
-  "test_command": "npm test",
+  "test_command": "",
 
-  "curl_tests_enabled": true,
+  "curl_tests_enabled": false,
   "api_base_url": "http://localhost:3000",
 
-  "auto_document": true,
+  "auto_document": false,
 
   "task_source": {
-    "type": "notion",
-    "config": {
-      "database_id": "YOUR_NOTION_DATABASE_ID",
-      "status_field": "Status"
-    }
+    "type": "custom",
+    "config": {}
   }
 }
