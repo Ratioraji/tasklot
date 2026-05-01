@@ -25,7 +25,11 @@ execute_task() {
 
   cd "$work_dir"
 
-  # Use claude with --print for non-interactive execution
-  # The prompt is passed via stdin to handle large prompts safely
-  echo "$prompt" | claude -p --output-format text 2>&1
+  # Use claude with --print for non-interactive execution.
+  # --dangerously-skip-permissions is required: tasklot runs claude headlessly
+  # so there is no human to approve write/bash/edit prompts. Without it,
+  # every file-writing or shell tool call is silently denied and the QA gate
+  # fails because nothing was produced.
+  # The prompt is passed via stdin to handle large prompts safely.
+  echo "$prompt" | claude -p --dangerously-skip-permissions --output-format text 2>&1
 }
